@@ -1,5 +1,7 @@
 """Async HTTP client for Amazon.in."""
 
+import re
+
 import httpx
 
 BASE_URL = "https://www.amazon.in"
@@ -16,6 +18,16 @@ DEFAULT_HEADERS = {
     "Accept-Encoding": "gzip, deflate, br",
     "Cache-Control": "no-cache",
 }
+
+_ASIN_RE = re.compile(r"^[A-Z0-9]{10}$")
+
+
+def validate_asin(asin: str) -> str:
+    """Validate and normalize an Amazon ASIN (10 alphanumeric chars)."""
+    asin = asin.strip().upper()
+    if not _ASIN_RE.match(asin):
+        raise ValueError(f"Invalid ASIN format: {asin!r}")
+    return asin
 
 
 class AmazonClient:
@@ -38,11 +50,18 @@ class AmazonClient:
         if self._http:
             await self._http.aclose()
 
-    async def fetch(self, path: str) -> str:
+    async def fetch(self, path: str, params: dict | None = None) -> str:
         """Fetch a page and return HTML text."""
         try:
-            resp = await self._http.get(path)
+            resp = await self._http.get(path, params=params)
         except httpx.ReadTimeout:
-            raise TimeoutError(f"Request to {path} timed out") from None
-        resp.raise_for_status()
+            raise TimeoutError(f"Request timed out") from None
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise httpx.HTTPStatusError(
+                f"HTTP {exc.response.status_code}",
+                request=exc.request,
+                response=exc.response,
+            ) from None
         return resp.text

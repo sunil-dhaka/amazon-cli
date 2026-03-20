@@ -13,14 +13,14 @@ SORT_OPTIONS = {
 }
 
 
-def _build_search_path(query: str, page: int = 1, sort: str | None = None) -> str:
-    """Build Amazon search URL path."""
-    params = [f"k={query}"]
+def _build_search_params(query: str, page: int = 1, sort: str | None = None) -> dict:
+    """Build Amazon search query parameters (URL-encoded by httpx)."""
+    params = {"k": query}
     if page > 1:
-        params.append(f"page={page}")
+        params["page"] = page
     if sort and sort in SORT_OPTIONS and SORT_OPTIONS[sort]:
-        params.append(f"s={SORT_OPTIONS[sort]}")
-    return "/s?" + "&".join(params)
+        params["s"] = SORT_OPTIONS[sort]
+    return params
 
 
 async def search_products(
@@ -30,6 +30,6 @@ async def search_products(
     sort: str | None = None,
 ) -> tuple[list[Product], int]:
     """Search Amazon.in and return (products, total_count)."""
-    path = _build_search_path(query, page, sort)
-    html = await client.fetch(path)
+    params = _build_search_params(query, page, sort)
+    html = await client.fetch("/s", params=params)
     return parse_search_results(html)
