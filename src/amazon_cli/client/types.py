@@ -58,6 +58,40 @@ class Product:
 
 
 @dataclass
+class ReviewAspect:
+    """A review aspect tag (e.g. Quality: 67 mentions, 59 positive)."""
+
+    name: str
+    total: int
+    positive: int
+    negative: int
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "total": self.total,
+            "positive": self.positive,
+            "negative": self.negative,
+        }
+
+
+@dataclass
+class ReviewInsights:
+    """AI-generated review summary and aspect breakdown."""
+
+    summary: str = ""
+    aspects: list[ReviewAspect] = field(default_factory=list)
+    histogram: dict[int, int] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return {
+            "summary": self.summary,
+            "aspects": [a.to_dict() for a in self.aspects],
+            "histogram": self.histogram,
+        }
+
+
+@dataclass
 class ProductDetail:
     """Full product details from a product page."""
 
@@ -73,6 +107,7 @@ class ProductDetail:
     features: list[str] = field(default_factory=list)
     specs: dict[str, str] = field(default_factory=dict)
     image_url: str = ""
+    insights: ReviewInsights = field(default_factory=ReviewInsights)
 
     @property
     def price_display(self) -> str:
@@ -102,6 +137,7 @@ class ProductDetail:
             "features": self.features,
             "specs": self.specs,
             "image_url": self.image_url,
+            "insights": self.insights.to_dict(),
         }
 
 

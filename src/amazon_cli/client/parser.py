@@ -4,7 +4,10 @@ import re
 
 from selectolax.parser import HTMLParser
 
-from amazon_cli.client.types import Product, ProductDetail, Review, _clean_text, _parse_price
+from amazon_cli.client.types import (
+    Product, ProductDetail, Review, ReviewAspect, ReviewInsights,
+    _clean_text, _parse_price,
+)
 
 
 def parse_search_results(html: str) -> tuple[list[Product], int]:
@@ -245,7 +248,47 @@ def parse_product_page(html: str, asin: str) -> ProductDetail:
         features=features,
         specs=specs,
         image_url=image_url,
+        insights=_parse_review_insights(tree),
     )
+
+
+def _parse_review_insights(tree: HTMLParser) -> ReviewInsights:
+    """Extract AI summary, aspect tags, and rating histogram."""
+    # AI summary: long span text starting with "Customers find..."
+    summary = ""
+    insights_node = tree.css_first('[data-csa-c-slot-id="cr-product-insights-detail-page"]')
+    if insights_node:
+        for span in insights_node.css("span"):
+            text = span.text(strip=True)
+            if len(text) > 80 and re.match(r"Customers\s+(find|appreciate|like|say)", text):
+                summary = _clean_text(text)
+                break
+
+    # Aspect tags: divs with id="rh_controls_aspect_N"
+    aspects = []
+    for div in tree.css('[id^="rh_controls_aspect_"]'):
+        text = div.text(strip=True)
+        match = re.match(
+            r"(\d+)\s+customers mention\s+(.+?),\s+(\d+)\s+positive,\s+(\d+)\s+negative",
+            text,
+        )
+        if match:
+            aspects.append(ReviewAspect(
+                name=match.group(2).strip().title(),
+                total=int(match.group(1)),
+                positive=int(match.group(3)),
+                negative=int(match.group(4)),
+            ))
+
+    # Rating histogram
+    histogram = {}
+    for a in tree.css("#histogramTable a"):
+        label = a.attributes.get("aria-label", "")
+        match = re.search(r"(\d+)\s+percent.*?(\d+)\s+star", label)
+        if match:
+            histogram[int(match.group(2))] = int(match.group(1))
+
+    return ReviewInsights(summary=summary, aspects=aspects, histogram=histogram)
 
 
 def _parse_specs(tree: HTMLParser) -> dict[str, str]:

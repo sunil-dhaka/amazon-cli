@@ -120,6 +120,10 @@ def print_product_detail(product) -> None:
     panel = Panel("\n".join(lines), title=f"[cyan]{product.asin}[/]", border_style="blue")
     console.print(panel)
 
+    # Review insights (rendered after the panel)
+    if product.insights and (product.insights.summary or product.insights.aspects):
+        _print_review_insights(product.insights)
+
 
 def print_reviews(reviews, asin: str, page: int = 1) -> None:
     """Render product reviews."""
@@ -161,3 +165,39 @@ def print_compare_table(products) -> None:
         table.add_row(label, *values)
 
     console.print(table)
+
+
+def _print_review_insights(insights) -> None:
+    """Render review insights: AI summary, aspects, and histogram."""
+    lines = []
+
+    if insights.summary:
+        lines.append(f"[dim italic]{insights.summary}[/]")
+        lines.append("")
+
+    if insights.histogram:
+        lines.append("[bold]Rating breakdown:[/]")
+        for stars in sorted(insights.histogram.keys(), reverse=True):
+            pct = insights.histogram[stars]
+            bar = "#" * (pct // 2)
+            lines.append(f"  {stars} star  [yellow]{bar:<25}[/] {pct}%")
+        lines.append("")
+
+    if insights.aspects:
+        lines.append("[bold]What customers say:[/]")
+        for a in insights.aspects:
+            pos_pct = round(a.positive / a.total * 100) if a.total else 0
+            if pos_pct >= 80:
+                style = "green"
+            elif pos_pct >= 60:
+                style = "yellow"
+            else:
+                style = "red"
+            lines.append(
+                f"  [{style}]{a.name:<20}[/] {a.total:>3} mentions  "
+                f"[green]+{a.positive}[/] [red]-{a.negative}[/]"
+            )
+
+    if lines:
+        panel = Panel("\n".join(lines), title="[yellow]Customer Insights[/]", border_style="yellow")
+        console.print(panel)
