@@ -3,10 +3,11 @@
 import asyncio
 
 import click
+import httpx
 
 from amazon_cli.client.base import AmazonClient
 from amazon_cli.client.product import get_product
-from amazon_cli.output import error, output_json, output_plain, print_compare_table
+from amazon_cli.output import err_console, error, output_json, output_plain, print_compare_table
 
 
 @click.command()
@@ -17,17 +18,27 @@ def compare(asins, as_json, as_plain):
     """Compare products side by side (2+ ASINs)."""
     if len(asins) < 2:
         error("Provide at least 2 ASINs to compare.")
+        return
     asyncio.run(_compare(asins, as_json, as_plain))
 
 
 async def _compare(asins, as_json, as_plain):
     async with AmazonClient() as client:
-        try:
-            products = await asyncio.gather(
-                *(get_product(client, asin) for asin in asins)
-            )
-        except Exception as e:
-            error(str(e))
+        results = await asyncio.gather(
+            *(get_product(client, asin) for asin in asins),
+            return_exceptions=True,
+        )
+
+    products = []
+    for asin, result in zip(asins, results):
+        if isinstance(result, BaseException):
+            err_console.print(f"[yellow]Warning:[/] Failed to fetch {asin}: {result}")
+        else:
+            products.append(result)
+
+    if not products:
+        error("All product lookups failed.")
+        return
 
     if as_json:
         output_json([p.to_dict() for p in products])

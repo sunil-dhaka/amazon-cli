@@ -3,6 +3,7 @@
 import asyncio
 
 import click
+import httpx
 
 from amazon_cli.client.base import AmazonClient
 from amazon_cli.client.product import get_product
@@ -22,8 +23,9 @@ async def _product(asin, as_json, as_plain):
     async with AmazonClient() as client:
         try:
             detail = await get_product(client, asin)
-        except Exception as e:
+        except (httpx.HTTPError, TimeoutError, ValueError) as e:
             error(str(e))
+            return
 
     if as_json:
         output_json(detail.to_dict())

@@ -125,9 +125,9 @@ def print_product_detail(product) -> None:
         _print_review_insights(product.insights)
 
 
-def print_reviews(reviews, asin: str, page: int = 1) -> None:
+def print_reviews(reviews, asin: str) -> None:
     """Render product reviews."""
-    console.print(f"\n[bold]Reviews for {asin}[/] (page {page})\n")
+    console.print(f"\n[bold]Reviews for {asin}[/]\n")
 
     for r in reviews:
         stars = _format_rating(r.rating)

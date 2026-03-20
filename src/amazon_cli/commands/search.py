@@ -3,6 +3,7 @@
 import asyncio
 
 import click
+import httpx
 
 from amazon_cli.client.base import AmazonClient
 from amazon_cli.client.search import SORT_OPTIONS, search_products
@@ -11,7 +12,7 @@ from amazon_cli.output import error, output_json, output_plain, print_products_t
 
 @click.command()
 @click.argument("query")
-@click.option("--page", "-p", default=1, help="Page number.")
+@click.option("--page", "-p", default=1, type=click.IntRange(min=1), help="Page number.")
 @click.option(
     "--sort", "-s",
     type=click.Choice(list(SORT_OPTIONS.keys())),
@@ -29,11 +30,13 @@ async def _search(query, page, sort, as_json, as_plain):
     async with AmazonClient() as client:
         try:
             products, total = await search_products(client, query, page=page, sort=sort)
-        except Exception as e:
+        except (httpx.HTTPError, TimeoutError, ValueError) as e:
             error(str(e))
+            return
 
     if not products:
         error("No results found.")
+        return
 
     if as_json:
         output_json({
@@ -44,7 +47,7 @@ async def _search(query, page, sort, as_json, as_plain):
     elif as_plain:
         headers = ["asin", "title", "price", "rating", "reviews", "prime"]
         rows = [
-            [p.asin, p.title, p.price, p.rating, p.review_count, p.is_prime]
+            [p.asin, p.title, p.price, p.rating, p.review_count, int(p.is_prime)]
             for p in products
         ]
         output_plain(rows, headers)
