@@ -4,6 +4,7 @@ import httpx
 
 BASE_URL = "https://www.amazon.in"
 
+# Amazon requires a realistic User-Agent or it returns bot-check pages.
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -39,6 +40,9 @@ class AmazonClient:
 
     async def fetch(self, path: str) -> str:
         """Fetch a page and return HTML text."""
-        resp = await self._http.get(path)
+        try:
+            resp = await self._http.get(path)
+        except httpx.ReadTimeout:
+            raise TimeoutError(f"Request to {path} timed out") from None
         resp.raise_for_status()
         return resp.text

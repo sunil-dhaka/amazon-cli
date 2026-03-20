@@ -4,7 +4,7 @@ import re
 
 from selectolax.parser import HTMLParser
 
-from amazon_cli.client.types import Product, ProductDetail, Review
+from amazon_cli.client.types import Product, ProductDetail, Review, _clean_text, _parse_price
 
 
 def parse_search_results(html: str) -> tuple[list[Product], int]:
@@ -17,7 +17,6 @@ def parse_search_results(html: str) -> tuple[list[Product], int]:
         asin = node.attributes.get("data-asin", "")
         if not asin:
             continue
-        # Skip sponsored results
         if "AdHolder" in (node.attributes.get("class", "")):
             continue
 
@@ -30,7 +29,6 @@ def parse_search_results(html: str) -> tuple[list[Product], int]:
 
 def _parse_result_count(tree: HTMLParser) -> int:
     """Extract total result count from breadcrumb area."""
-    # The breadcrumb div contains "1-48 of over 1,000 results for" text
     node = tree.css_first("div.s-breadcrumb")
     if not node:
         node = tree.css_first("span[data-component-type='s-result-info-bar']")
@@ -45,7 +43,7 @@ def _parse_result_count(tree: HTMLParser) -> int:
 
 def _parse_search_item(node, asin: str) -> Product | None:
     """Parse a single search result div."""
-    # Title: second h2 (first is brand name, second is product title)
+    # Title: second h2 (first is brand, second is product title)
     title = ""
     title_node = node.css_first("h2.a-size-base-plus.a-spacing-none.a-color-base.a-text-normal")
     if title_node:
@@ -60,14 +58,14 @@ def _parse_search_item(node, asin: str) -> Product | None:
     if not title:
         return None
 
-    # Price: span.a-price (without a-text-price) > span.a-offscreen
-    price = ""
+    # Price
+    price = 0
     for price_node in node.css("span.a-price"):
         classes = price_node.attributes.get("class", "")
         if "a-text-price" not in classes:
             offscreen = price_node.css_first("span.a-offscreen")
             if offscreen:
-                price = offscreen.text(strip=True)
+                price = _parse_price(offscreen.text(strip=True))
             break
 
     # Rating
@@ -82,12 +80,11 @@ def _parse_search_item(node, asin: str) -> Product | None:
     review_count = 0
     for a_tag in node.css("a"):
         href = a_tag.attributes.get("href", "")
-        if "#customerReviews" in href or "customerReviews" in href:
+        if "customerReviews" in href:
             text = a_tag.text(strip=True).strip("()")
             review_count = _parse_count(text)
             break
     if not review_count:
-        # Fallback: span near rating with count text
         for span in node.css("span.a-size-base.s-underline-text"):
             text = span.text(strip=True).strip("()")
             count = _parse_count(text)
@@ -104,13 +101,13 @@ def _parse_search_item(node, asin: str) -> Product | None:
     # Prime badge
     is_prime = bool(node.css_first("i.a-icon-prime"))
 
-    # Delivery
+    # Delivery -- clean up concatenated text
     delivery = ""
     del_node = node.css_first("[data-cy='delivery-recipe']")
     if not del_node:
         del_node = node.css_first("[data-cy='delivery-block']")
     if del_node:
-        delivery = del_node.text(strip=True)
+        delivery = _clean_delivery(del_node.text(strip=True))
 
     return Product(
         asin=asin,
@@ -138,7 +135,6 @@ def parse_product_page(html: str, asin: str) -> ProductDetail:
     brand = ""
     brand_node = tree.css_first("a#bylineInfo")
     if not brand_node:
-        # Fallback: look for "Visit the ... Store" link
         for a in tree.css("a"):
             text = a.text(strip=True)
             if text.startswith("Visit the ") and text.endswith("Store"):
@@ -150,7 +146,7 @@ def parse_product_page(html: str, asin: str) -> ProductDetail:
         brand = re.sub(r"\s*Store$", "", brand)
 
     # Price
-    price = ""
+    price = 0
     for sel in [
         "div#corePrice_feature_div span.a-offscreen",
         "div#corePriceDisplay_desktop_feature_div span.a-offscreen",
@@ -158,17 +154,16 @@ def parse_product_page(html: str, asin: str) -> ProductDetail:
     ]:
         p_node = tree.css_first(sel)
         if p_node:
-            price = p_node.text(strip=True)
+            price = _parse_price(p_node.text(strip=True))
             if price:
                 break
     if not price:
-        # Fallback: a-price-whole inside priceToPay
         pw = tree.css_first("span.priceToPay span.a-price-whole")
         if pw:
-            price = "₹" + pw.text(strip=True).rstrip(".")
+            price = _parse_price(pw.text(strip=True))
 
     # MRP
-    mrp = ""
+    mrp = 0
     for sel in [
         "span.basisPrice span.a-offscreen",
         "span.a-text-price[data-a-strike='true'] span.a-offscreen",
@@ -176,7 +171,7 @@ def parse_product_page(html: str, asin: str) -> ProductDetail:
     ]:
         mrp_node = tree.css_first(sel)
         if mrp_node:
-            mrp = mrp_node.text(strip=True)
+            mrp = _parse_price(mrp_node.text(strip=True))
             break
 
     # Discount
@@ -194,7 +189,6 @@ def parse_product_page(html: str, asin: str) -> ProductDetail:
         if match:
             rating = float(match.group(1))
     if not rating:
-        # Fallback: span.a-icon-alt
         alt_node = tree.css_first("span.a-icon-alt")
         if alt_node:
             match = re.search(r"([\d.]+)\s+out\s+of\s+5", alt_node.text(strip=True))
@@ -207,44 +201,30 @@ def parse_product_page(html: str, asin: str) -> ProductDetail:
     if rc_node:
         review_count = _parse_count(rc_node.text(strip=True))
 
-    # Availability
+    # Availability -- extract just the status text, strip embedded JSON
     availability = ""
     avail_node = tree.css_first("div#availability")
     if avail_node:
-        availability = avail_node.text(strip=True)
+        # Get only the first meaningful span's text
+        span = avail_node.css_first("span")
+        if span:
+            availability = span.text(strip=True)
+        else:
+            availability = avail_node.text(strip=True)
+        # Strip any JSON that leaked in
+        availability = re.sub(r"\{.*", "", availability).strip()
 
     # Feature bullets
     features = []
     fb_node = tree.css_first("div#feature-bullets")
     if fb_node:
         for li in fb_node.css("li span.a-list-item"):
-            text = li.text(strip=True)
+            text = _clean_text(li.text(strip=True))
             if text and not text.startswith("Show more"):
                 features.append(text)
 
-    # Specs -- try multiple patterns
-    specs = {}
-    # Pattern 1: prodDetTable
-    for table in tree.css("table.prodDetTable"):
-        for tr in table.css("tr"):
-            th = tr.css_first("th")
-            td = tr.css_first("td")
-            if th and td:
-                key = th.text(strip=True)
-                val = td.text(strip=True)
-                if key and val:
-                    specs[key] = val
-    # Pattern 2: productOverview table
-    if not specs:
-        overview = tree.css_first("div#productOverview_feature_div table")
-        if overview:
-            for tr in overview.css("tr"):
-                tds = tr.css("td")
-                if len(tds) >= 2:
-                    key = tds[0].text(strip=True)
-                    val = tds[1].text(strip=True)
-                    if key and val:
-                        specs[key] = val
+    # Specs -- try multiple Amazon page layouts
+    specs = _parse_specs(tree)
 
     # Image
     image_url = ""
@@ -268,8 +248,38 @@ def parse_product_page(html: str, asin: str) -> ProductDetail:
     )
 
 
+def _parse_specs(tree: HTMLParser) -> dict[str, str]:
+    """Extract specifications from product page (multiple layout patterns)."""
+    specs = {}
+
+    # Pattern 1: prodDetTable (electronics, appliances)
+    for table in tree.css("table.prodDetTable"):
+        for tr in table.css("tr"):
+            th = tr.css_first("th")
+            td = tr.css_first("td")
+            if th and td:
+                key = _clean_text(th.text(strip=True))
+                val = _clean_text(td.text(strip=True))
+                if key and val and not _is_junk(val):
+                    specs[key] = val
+
+    # Pattern 2: productOverview table (common on many pages)
+    if not specs:
+        overview = tree.css_first("div#productOverview_feature_div table")
+        if overview:
+            for tr in overview.css("tr"):
+                tds = tr.css("td")
+                if len(tds) >= 2:
+                    key = _clean_text(tds[0].text(strip=True))
+                    val = _clean_text(tds[1].text(strip=True))
+                    if key and val and not _is_junk(val):
+                        specs[key] = val
+
+    return specs
+
+
 def parse_reviews_page(html: str) -> list[Review]:
-    """Parse a product reviews page."""
+    """Parse reviews from product page or dedicated reviews page."""
     tree = HTMLParser(html)
     reviews = []
 
@@ -288,7 +298,6 @@ def parse_reviews_page(html: str) -> list[Review]:
         title = ""
         title_node = node.css_first('[data-hook="review-title"]')
         if title_node:
-            # The title span is the last <span> child without "out of" text
             for span in title_node.css("span"):
                 text = span.text(strip=True)
                 if text and "out of" not in text:
@@ -299,8 +308,8 @@ def parse_reviews_page(html: str) -> list[Review]:
         body_node = node.css_first('[data-hook="review-body"]')
         if body_node:
             body = body_node.text(strip=True)
-            # Clean up trailing "Read more"
-            body = re.sub(r"Read more$", "", body).rstrip()
+            body = re.sub(r"(Read more|Read less)$", "", body).rstrip()
+            body = re.sub(r"^The media could not be loaded\.\s*", "", body)
 
         # Author
         author = ""
@@ -313,12 +322,8 @@ def parse_reviews_page(html: str) -> list[Review]:
         date_node = node.css_first('[data-hook="review-date"]')
         if date_node:
             date_text = date_node.text(strip=True)
-            # "Reviewed in India on 12 March 2026" -> "12 March 2026"
             match = re.search(r"on\s+(.+)$", date_text)
-            if match:
-                date = match.group(1)
-            else:
-                date = date_text
+            date = match.group(1) if match else date_text
 
         # Verified
         verified = bool(node.css_first('[data-hook="avp-badge"]'))
@@ -336,7 +341,7 @@ def parse_reviews_page(html: str) -> list[Review]:
 
 
 def _parse_count(text: str) -> int:
-    """Parse review/rating count strings like '1,910', '1.9K', '25K'."""
+    """Parse count strings like '1,910', '1.9K', '25K'."""
     text = text.strip().strip("()").replace(",", "")
     if not text:
         return 0
@@ -350,3 +355,19 @@ def _parse_count(text: str) -> int:
     elif suffix == "M":
         num *= 1_000_000
     return int(num)
+
+
+def _clean_delivery(text: str) -> str:
+    """Clean up concatenated delivery text from Amazon."""
+    # "FREE deliveryTue, 24 Mar" -> "FREE delivery Tue, 24 Mar"
+    text = re.sub(r"(delivery)([A-Z])", r"\1 \2", text)
+    # "Or fastest deliverySun" -> "| Fastest: Sun..."
+    text = re.sub(r"Or fastest delivery\s*", "| Fastest: ", text)
+    # "on first order" -> strip
+    text = re.sub(r"on (?:first |your )?order\s*$", "", text)
+    return text.strip()
+
+
+def _is_junk(text: str) -> bool:
+    """Check if a specs value is JS/HTML junk rather than real data."""
+    return any(marker in text for marker in ["window.", "function(", "var ", "P.when("])

@@ -1,4 +1,4 @@
-"""Output formatters: rich, JSON, plain."""
+"""Output formatters: rich tables, JSON, and plain text."""
 
 import json
 import sys
@@ -12,105 +12,129 @@ console = Console()
 err_console = Console(stderr=True)
 
 
-def error(msg: str) -> None:
-    """Print error and exit."""
-    err_console.print(f"[bold red]Error:[/] {msg}")
-    sys.exit(1)
-
-
 def output_json(data) -> None:
+    """Print structured JSON to stdout."""
     print(json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def output_plain(rows: list[list[str]], headers: list[str] | None = None) -> None:
-    """Tab-separated rows (pipeable)."""
+    """Print tab-separated rows with no ANSI (pipeable)."""
     if headers:
         print("\t".join(headers))
     for row in rows:
         print("\t".join(str(cell) for cell in row))
 
 
+def error(msg: str) -> None:
+    """Print error to stderr and exit."""
+    err_console.print(f"[bold red]Error:[/] {msg}")
+    sys.exit(1)
+
+
+def _format_price(price: int, mrp: int = 0) -> Text:
+    """Format price with optional strikethrough MRP."""
+    text = Text()
+    if not price:
+        text.append("-", style="dim")
+        return text
+    text.append(f"Rs.{price:,}", style="bold green")
+    if mrp and mrp > price:
+        text.append(f" Rs.{mrp:,}", style="dim strike")
+        pct = round((1 - price / mrp) * 100)
+        text.append(f" ({pct}% off)", style="bold red")
+    return text
+
+
+def _format_rating(rating: float, count: int = 0) -> str:
+    """Format rating as stars string with optional count."""
+    full = int(rating)
+    half = 1 if rating - full >= 0.5 else 0
+    empty = 5 - full - half
+    stars = "*" * full + ("+" if half else "") + "." * empty
+    base = f"{rating:.1f} [{stars}]"
+    if count:
+        base += f" ({count:,})"
+    return base
+
+
 def print_products_table(products, total_count: int = 0, page: int = 1) -> None:
-    """Rich table of search results."""
+    """Render a search results table."""
     title = f"Search Results (page {page}"
     if total_count:
         title += f", ~{total_count} found"
     title += ")"
 
-    table = Table(title=title, show_lines=True)
+    table = Table(title=title, show_lines=False)
     table.add_column("#", style="dim", width=3)
     table.add_column("ASIN", style="cyan", width=12)
-    table.add_column("Title", max_width=50)
-    table.add_column("Price", style="green", justify="right")
-    table.add_column("Rating", justify="center")
-    table.add_column("Reviews", justify="right")
-    table.add_column("Prime", justify="center")
+    table.add_column("Title", max_width=45)
+    table.add_column("Price", justify="right")
+    table.add_column("Rating", justify="center", width=12)
+    table.add_column("Reviews", justify="right", width=8)
 
     for i, p in enumerate(products, 1):
-        rating_text = _format_rating(p.rating) if p.rating else "-"
+        rating = _format_rating(p.rating) if p.rating else "-"
         reviews = f"{p.review_count:,}" if p.review_count else "-"
-        prime = "Yes" if p.is_prime else ""
-        price = p.price if p.price else "-"
-        title_text = p.title[:50] + "..." if len(p.title) > 50 else p.title
+        title_text = p.title[:45] + "..." if len(p.title) > 45 else p.title
+        price = _format_price(p.price)
 
-        table.add_row(str(i), p.asin, title_text, price, rating_text, reviews, prime)
+        table.add_row(str(i), p.asin, title_text, price, rating, reviews)
 
     console.print(table)
 
 
 def print_product_detail(product) -> None:
-    """Rich panel for a single product."""
+    """Render full product details as a rich panel."""
     lines = []
 
     if product.brand:
-        lines.append(f"[dim]Brand:[/] {product.brand}")
-    lines.append(f"[bold]{product.title}[/]")
+        lines.append(f"[bold cyan]{product.brand}[/] [bold]{product.title}[/]")
+    else:
+        lines.append(f"[bold]{product.title}[/]")
     lines.append("")
 
-    if product.price:
-        price_line = f"[bold green]Price: {product.price}[/]"
-        if product.mrp and product.mrp != product.price:
-            price_line += f"  [dim strikethrough]{product.mrp}[/]"
-        if product.discount:
-            price_line += f"  [bold red]{product.discount}[/]"
-        lines.append(price_line)
+    price_str = str(_format_price(product.price, product.mrp))
+    if product.discount and not product.mrp:
+        price_str += f"  [bold red]{product.discount}[/]"
+    lines.append(f"Price: {price_str}")
 
     if product.rating:
-        lines.append(f"Rating: {_format_rating(product.rating)}  ({product.review_count:,} reviews)")
+        lines.append(f"Rating: [yellow]{_format_rating(product.rating, product.review_count)}[/]")
 
     if product.availability:
-        lines.append(f"Stock: {product.availability}")
+        style = "green" if "In stock" in product.availability else "red"
+        lines.append(f"Stock: [{style}]{product.availability}[/]")
 
     if product.features:
         lines.append("")
-        lines.append("[bold]Features:[/]")
-        for feat in product.features:
-            lines.append(f"  - {feat}")
+        lines.append("[bold]About this item:[/]")
+        for feat in product.features[:8]:
+            lines.append(f"  - {feat[:120]}")
 
     if product.specs:
         lines.append("")
         lines.append("[bold]Specifications:[/]")
-        for key, val in product.specs.items():
-            lines.append(f"  {key}: {val}")
+        for key, val in list(product.specs.items())[:12]:
+            lines.append(f"  [dim]{key}:[/] {val}")
 
     panel = Panel("\n".join(lines), title=f"[cyan]{product.asin}[/]", border_style="blue")
     console.print(panel)
 
 
 def print_reviews(reviews, asin: str, page: int = 1) -> None:
-    """Rich output for reviews."""
+    """Render product reviews."""
     console.print(f"\n[bold]Reviews for {asin}[/] (page {page})\n")
 
-    for i, r in enumerate(reviews, 1):
+    for r in reviews:
         stars = _format_rating(r.rating)
         verified = " [green](Verified)[/]" if r.verified else ""
-        header = f"{stars}{verified}  [bold]{r.title}[/]"
+        header = f"[yellow]{stars}[/]{verified}  [bold]{r.title}[/]"
         meta = f"[dim]{r.author} -- {r.date}[/]"
 
         console.print(header)
         console.print(meta)
         if r.body:
-            console.print(r.body)
+            console.print(f"  {r.body[:300]}")
         console.print()
 
 
@@ -120,30 +144,20 @@ def print_compare_table(products) -> None:
     table.add_column("Attribute", style="bold", width=15)
 
     for p in products:
-        label = p.asin
-        table.add_column(label, max_width=35)
+        table.add_column(p.asin, max_width=30)
 
     rows = [
-        ("Title", [p.title[:35] for p in products]),
+        ("Title", [p.title[:30] for p in products]),
         ("Brand", [p.brand or "-" for p in products]),
-        ("Price", [p.price or "-" for p in products]),
-        ("MRP", [p.mrp or "-" for p in products]),
-        ("Discount", [p.discount or "-" for p in products]),
+        ("Price", [p.price_display or "-" for p in products]),
+        ("MRP", [p.mrp_display or "-" for p in products]),
+        ("Discount", [p.discount or f"-{p.discount_pct}%" if p.discount_pct else "-" for p in products]),
         ("Rating", [_format_rating(p.rating) if p.rating else "-" for p in products]),
         ("Reviews", [f"{p.review_count:,}" if p.review_count else "-" for p in products]),
-        ("In Stock", [p.availability or "-" for p in products]),
+        ("Stock", [p.availability or "-" for p in products]),
     ]
 
     for label, values in rows:
         table.add_row(label, *values)
 
     console.print(table)
-
-
-def _format_rating(rating: float) -> str:
-    """Format rating as stars string."""
-    full = int(rating)
-    half = 1 if rating - full >= 0.5 else 0
-    empty = 5 - full - half
-    stars = "*" * full + ("+" if half else "") + "." * empty
-    return f"{rating:.1f} [{stars}]"

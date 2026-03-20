@@ -1,6 +1,30 @@
 """Data types for Amazon product data."""
 
+import re
 from dataclasses import dataclass, field
+
+
+def _parse_price(text: str) -> int:
+    """Parse a price string like '₹3,325.00' into paise-free int (3325)."""
+    if not text:
+        return 0
+    cleaned = re.sub(r"[^\d.]", "", text)
+    if not cleaned:
+        return 0
+    return int(float(cleaned))
+
+
+def _format_price(price: int) -> str:
+    """Format an int price to display string."""
+    if not price:
+        return ""
+    return f"Rs.{price:,}"
+
+
+def _clean_text(text: str) -> str:
+    """Collapse whitespace and strip stray HTML/JS artifacts."""
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
 @dataclass
@@ -11,22 +35,14 @@ class Product:
     title: str
     rating: float = 0.0
     review_count: int = 0
-    price: str = ""
+    price: int = 0
     image_url: str = ""
     is_prime: bool = False
     delivery: str = ""
 
-    @classmethod
-    def from_search(cls, raw: dict) -> "Product":
-        """Parse from search result attributes JSON."""
-        return cls(
-            asin=raw.get("asin", ""),
-            title=raw.get("title", ""),
-            rating=float(raw.get("rating", 0) or 0),
-            review_count=int(raw.get("reviewCount", 0) or 0),
-            image_url=raw.get("imageUrl", ""),
-            is_prime=bool(raw.get("isPrime", False)),
-        )
+    @property
+    def price_display(self) -> str:
+        return _format_price(self.price)
 
     def to_dict(self) -> dict:
         return {
@@ -48,8 +64,8 @@ class ProductDetail:
     asin: str
     title: str = ""
     brand: str = ""
-    price: str = ""
-    mrp: str = ""
+    price: int = 0
+    mrp: int = 0
     discount: str = ""
     rating: float = 0.0
     review_count: int = 0
@@ -57,6 +73,20 @@ class ProductDetail:
     features: list[str] = field(default_factory=list)
     specs: dict[str, str] = field(default_factory=dict)
     image_url: str = ""
+
+    @property
+    def price_display(self) -> str:
+        return _format_price(self.price)
+
+    @property
+    def mrp_display(self) -> str:
+        return _format_price(self.mrp)
+
+    @property
+    def discount_pct(self) -> int:
+        if self.mrp and self.price < self.mrp:
+            return round((1 - self.price / self.mrp) * 100)
+        return 0
 
     def to_dict(self) -> dict:
         return {

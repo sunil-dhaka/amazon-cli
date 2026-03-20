@@ -13,8 +13,7 @@ from amazon_cli.output import error, output_json, output_plain, print_products_t
 @click.argument("query")
 @click.option("--page", "-p", default=1, help="Page number.")
 @click.option(
-    "--sort",
-    "-s",
+    "--sort", "-s",
     type=click.Choice(list(SORT_OPTIONS.keys())),
     default="relevance",
     help="Sort order.",
