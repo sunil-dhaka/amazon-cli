@@ -16,18 +16,11 @@ async def get_reviews(
     asin: str,
     page: int = 1,
 ) -> list[Review]:
-    """Fetch and parse product reviews.
+    """Fetch and parse product reviews from the product page.
 
-    Tries dedicated reviews page first, falls back to product page
-    (which embeds top reviews in the SSR HTML).
+    Amazon.in gates /product-reviews/ behind login, so we extract
+    the ~13 top reviews embedded in the product page SSR HTML.
+    Pagination is not available without authentication.
     """
-    if page == 1:
-        # Product page has ~10 reviews embedded, try that first
-        html = await client.fetch(f"/dp/{asin}")
-        reviews = parse_reviews_page(html)
-        if reviews:
-            return reviews
-    # Try dedicated reviews page
-    params = f"?pageNumber={page}" if page > 1 else ""
-    html = await client.fetch(f"/product-reviews/{asin}{params}")
+    html = await client.fetch(f"/dp/{asin}")
     return parse_reviews_page(html)
