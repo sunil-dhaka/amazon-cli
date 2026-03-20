@@ -47,6 +47,7 @@ def _format_price(price: int, mrp: int = 0) -> Text:
 
 def _format_rating(rating: float, count: int = 0) -> str:
     """Format rating as stars string with optional count."""
+    rating = max(0.0, min(5.0, rating))
     full = int(rating)
     half = 1 if rating - full >= 0.5 else 0
     empty = 5 - full - half

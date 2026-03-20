@@ -119,7 +119,7 @@ class ProductDetail:
 
     @property
     def discount_pct(self) -> int:
-        if self.mrp and self.price < self.mrp:
+        if self.price and self.mrp and self.price < self.mrp:
             return round((1 - self.price / self.mrp) * 100)
         return 0
 
