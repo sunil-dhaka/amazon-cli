@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>amz — Amazon in your terminal</title>
+    <meta
+      name="description"
+      content="amz: search products, compare prices, read reviews, and explore Amazon.in from your terminal."
+    />
+    <meta name="theme-color" content="#0b0b11" />
+    <meta property="og:title" content="amz — Amazon in your terminal" />
+    <meta
+      property="og:description"
+      content="amz: search products, compare prices, read reviews, and explore Amazon.in from your terminal."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://sunil-dhaka.github.io/amazon-cli/" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./assets/site.css" />
+    <link rel="stylesheet" href="./assets/site.more.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <div class="bg" aria-hidden="true">
+      <div class="bg__mesh"></div>
+      <div class="bg__grid"></div>
+      <div class="bg__grain"></div>
+    </div>
+
+    <header class="top">
+      <div class="wrap top__row">
+        <a class="brand" href="/">
+          <span class="brand__mark" aria-hidden="true"></span>
+          <span class="brand__name">amz</span>
+          <span class="brand__tag">amazon-cli</span>
+        </a>
+        <nav class="nav">
+          <a href="#install">Install</a>
+          <a href="#quickstart">Quickstart</a>
+          <a href="#commands">Commands</a>
+          <a href="#examples">Examples</a>
+          <a class="nav__cta" href="https://github.com/sunil-dhaka/amazon-cli">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" class="main">
+      <section class="hero">
+        <div class="wrap hero__grid">
+          <div class="hero__copy">
+            <p class="kicker">Amazon.in. One command.</p>
+            <h1>
+              <span class="hero__word">Amazon</span>
+              <span class="hero__word">in your</span>
+              <span class="hero__word hero__word--mono">terminal</span>
+            </h1>
+            <p class="lede">
+              <strong>amz</strong> lets you search products, compare prices, read reviews, and explore Amazon.in
+              directly from your terminal -- with rich tables, JSON output, and zero browser needed.
+            </p>
+
+            <div class="pills" aria-label="Capabilities">
+              <span class="pill pill--a1">Search</span>
+              <span class="pill pill--a1">Compare</span>
+              <span class="pill pill--a1">Reviews</span>
+              <span class="pill pill--a1">Product Details</span>
+              <span class="pill pill--a1">JSON Output</span>
+              <span class="pill pill--a1">Rich Tables</span>
+            </div>
+
+            <div class="hero__actions">
+              <a class="btn btn--primary" href="#install">Install</a>
+              <a class="btn btn--ghost" href="https://github.com/sunil-dhaka/amazon-cli#readme">Readme</a>
+            </div>
+
+            <p class="note">
+              Tip: use <code>--json</code> for scripting or <code>--plain</code> for piping to other tools.
+            </p>
+          </div>
+
+          <div class="hero__panel">
+            <div class="card term" role="region" aria-label="Terminal demo">
+              <div class="term__bar" aria-hidden="true">
+                <span class="dots">
+                  <span class="dot dot--r"></span>
+                  <span class="dot dot--y"></span>
+                  <span class="dot dot--g"></span>
+                </span>
+                <span class="term__title">amazon-cli</span>
+              </div>
+              <div class="term__body">
+                <pre class="term__pre"><code id="demo">
+$ uv tool install git+https://github.com/sunil-dhaka/amazon-cli.git
+$ amz search "sony headphones" --sort price_asc
+
+$ amz product B0DBVVW9XF
+$ amz compare B0DBVVW9XF B0DJMLWK7B
+$ amz reviews B0DBVVW9XF --json | jq '.reviews[].title'
+</code></pre>
+              </div>
+            </div>
+
+            <div class="card meta">
+              <div class="meta__item">
+                <div class="meta__k">Output</div>
+                <div class="meta__v">tables / <code>--plain</code> / <code>--json</code></div>
+              </div>
+              <div class="meta__item">
+                <div class="meta__k">Data Source</div>
+                <div class="meta__v">Amazon.in SSR (no API key needed)</div>
+              </div>
+              <div class="meta__item">
+                <div class="meta__k">Stack</div>
+                <div class="meta__v">Python 3.12+ / <code>httpx</code> / <code>selectolax</code></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="install" class="section">
+        <div class="wrap section__grid">
+          <div>
+            <h2>Install</h2>
+            <p class="muted">uv, pipx, pip, or from source.</p>
+          </div>
+
+          <div class="cols">
+            <div class="card block">
+              <h3>uv (recommended)</h3>
+              <pre class="code"><code>uv tool install git+https://github.com/sunil-dhaka/amazon-cli.git</code></pre>
+            </div>
+            <div class="card block">
+              <h3>From source</h3>
+              <pre class="code"><code>git clone https://github.com/sunil-dhaka/amazon-cli.git
+cd amazon-cli
+uv sync
+uv run amz --help</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="quickstart" class="section">
+        <div class="wrap section__grid">
+          <div>
+            <h2>Quickstart</h2>
+            <p class="muted">No API keys. No auth. Just search.</p>
+          </div>
+
+          <div class="steps">
+            <div class="step">
+              <div class="step__n">1</div>
+              <div class="step__b">
+                <h3>Install</h3>
+                <p>One command with uv.</p>
+                <pre class="code"><code>uv tool install git+https://github.com/sunil-dhaka/amazon-cli.git</code></pre>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step__n">2</div>
+              <div class="step__b">
+                <h3>Search products</h3>
+                <p>Full-text search with sort and pagination.</p>
+                <pre class="code"><code>amz search "laptop" --sort price_asc --page 2</code></pre>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step__n">3</div>
+              <div class="step__b">
+                <h3>Explore details</h3>
+                <p>Get full specs, pricing, and reviews.</p>
+                <pre class="code"><code>amz product B0DBVVW9XF</code></pre>
+              </div>
+            </div>
+          </div>
+
+          <div class="callout">
+            <div class="callout__icon" aria-hidden="true"></div>
+            <div class="callout__body">
+              <h3>Export to JSON</h3>
+              <p>
+                All commands support <code>--json</code> for scripting and <code>--plain</code> for tab-separated piping.
+              </p>
+              <pre class="code"><code>amz search "keyboards" --json | jq '.products[].title'</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="commands" class="section">
+        <div class="wrap section__grid">
+          <div>
+            <h2>Commands</h2>
+            <p class="muted">Search, compare, and explore products.</p>
+          </div>
+          <div class="grid">
+            <div class="card feat">
+              <h3>search</h3>
+              <p>Full-text product search with sort by relevance, price, reviews, newest, or discount. Pagination built-in.</p>
+            </div>
+            <div class="card feat">
+              <h3>product</h3>
+              <p>Full product details: pricing, rating histogram, AI customer insights, specs, and available sizes.</p>
+            </div>
+            <div class="card feat">
+              <h3>compare</h3>
+              <p>Side-by-side comparison of 2+ products. See price, rating, and key specs at a glance.</p>
+            </div>
+            <div class="card feat">
+              <h3>reviews</h3>
+              <p>Customer reviews with star ratings, verified purchase badges, and helpful vote counts.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="examples" class="section">
+        <div class="wrap section__grid">
+          <div>
+            <h2>Examples</h2>
+            <p class="muted">A few commands you'll reach for.</p>
+          </div>
+          <div class="cols">
+            <div class="card block">
+              <h3>Find cheap headphones</h3>
+              <pre class="code"><code>amz search "bluetooth headphones" --sort price_asc</code></pre>
+              <p class="muted">Pipe JSON for scripting.</p>
+              <pre class="code"><code>amz search "laptops" --json | jq '.products[] | {title, price}'</code></pre>
+            </div>
+            <div class="card block">
+              <h3>Compare before you buy</h3>
+              <pre class="code"><code>amz compare B0DBVVW9XF B0DJMLWK7B B0CHP56CBB</code></pre>
+              <p class="muted">Get reviews in JSON.</p>
+              <pre class="code"><code>amz reviews B0DBVVW9XF --json | jq '.reviews[] | .title'</code></pre>
+            </div>
+          </div>
+
+          <div class="footerline">
+            <a class="btn btn--primary" href="https://github.com/sunil-dhaka/amazon-cli">Go to GitHub</a>
+            <a class="btn btn--ghost" href="https://github.com/sunil-dhaka/amazon-cli#installation">PyPI</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="sitefoot">
+      <div class="wrap sitefoot__row">
+        <div class="sitefoot__left">
+          <div class="sitefoot__brand">
+            <span class="brand__mark brand__mark--small" aria-hidden="true"></span>
+            <span>amz</span>
+          </div>
+          <div class="sitefoot__small">
+            <span>Built by <a href="https://sunil-dhaka.github.io">Sunil Dhaka</a>.</span>
+            <span class="sep" aria-hidden="true">&#183;</span>
+            <a href="https://github.com/sunil-dhaka/amazon-cli/blob/main/LICENSE">MIT</a>
+          </div>
+        </div>
+        <div class="sitefoot__right">
+          <a href="https://github.com/sunil-dhaka/amazon-cli">Source</a>
+          <a href="https://github.com/sunil-dhaka/amazon-cli#installation">Install</a>
+          <a href="https://github.com/sunil-dhaka/amazon-cli#commands">Commands</a>
+        </div>
+      </div>
+
+      <div class="wrap sitefoot__fineprint">
+        <span>Not affiliated with Amazon. Amazon is a trademark of Amazon.com, Inc.</span>
+      </div>
+    </footer>
+
+    <script src="./assets/site.js"></script>
+  </body>
+</html>
