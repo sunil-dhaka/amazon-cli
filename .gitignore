@@ -7,3 +7,6 @@ dist/
 .eggs/
 .env
 *.env
+.coverage
+htmlcov/
+.pytest_cache/

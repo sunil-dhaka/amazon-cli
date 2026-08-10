@@ -1,7 +1,10 @@
-"""Output formatters: rich tables, JSON, and plain text."""
+"""Output formatters: rich tables, JSON, CSV, and plain text."""
 
+import csv
 import json
 import sys
+
+from amazon_cli import money
 
 from rich.console import Console
 from rich.panel import Panel
@@ -25,23 +28,43 @@ def output_plain(rows: list[list[str]], headers: list[str] | None = None) -> Non
         print("\t".join(str(cell) for cell in row))
 
 
-def error(msg: str) -> None:
-    """Print error to stderr and exit."""
+def error(msg: str, exit_code: int = 1) -> None:
+    """Print an error to stderr and exit with a meaningful status.
+
+    Exit codes let a script tell a wrong ASIN (4) from a bot check (5) without
+    scraping our stderr. See :mod:`amazon_cli.errors`.
+    """
     err_console.print(f"[bold red]Error:[/] {msg}")
-    sys.exit(1)
+    sys.exit(exit_code)
+
+
+def output_csv(rows: list[list], headers: list[str] | None = None) -> None:
+    """Write RFC 4180 CSV to stdout.
+
+    Uses the `csv` module rather than joining on commas: product titles are full
+    of commas and quotes, and hand-rolled joining silently corrupts them.
+    """
+    writer = csv.writer(sys.stdout, lineterminator="\n")
+    if headers:
+        writer.writerow(headers)
+    for row in rows:
+        writer.writerow(["" if cell is None else cell for cell in row])
 
 
 def _format_price(price: int, mrp: int = 0) -> Text:
-    """Format price with optional strikethrough MRP."""
+    """Format a paise price with optional struck-through MRP.
+
+    Grouping goes through :func:`money.format_inr`, so every rupee figure in the
+    UI is written the Indian way -- Rs.1,72,490, never Rs.172,490.
+    """
     text = Text()
     if not price:
         text.append("-", style="dim")
         return text
-    text.append(f"Rs.{price:,}", style="bold green")
+    text.append(money.format_inr(price), style="bold green")
     if mrp and mrp > price:
-        text.append(f" Rs.{mrp:,}", style="dim strike")
-        pct = round((1 - price / mrp) * 100)
-        text.append(f" ({pct}% off)", style="bold red")
+        text.append(f" {money.format_inr(mrp)}", style="dim strike")
+        text.append(f" ({money.discount_percent(price, mrp)}% off)", style="bold red")
     return text
 
 

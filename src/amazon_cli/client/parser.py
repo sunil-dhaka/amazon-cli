@@ -4,6 +4,7 @@ import re
 
 from selectolax.parser import HTMLParser
 
+from amazon_cli import money
 from amazon_cli.client.types import (
     Product, ProductDetail, Review, ReviewAspect, ReviewInsights,
     _clean_text, _parse_price,
@@ -148,34 +149,8 @@ def parse_product_page(html: str, asin: str) -> ProductDetail:
         brand = re.sub(r"^(Visit the |Brand:\s*)", "", brand_text)
         brand = re.sub(r"\s*Store$", "", brand)
 
-    # Price
-    price = 0
-    for sel in [
-        "div#corePrice_feature_div span.a-offscreen",
-        "div#corePriceDisplay_desktop_feature_div span.a-offscreen",
-        "span.priceToPay span.a-offscreen",
-    ]:
-        p_node = tree.css_first(sel)
-        if p_node:
-            price = _parse_price(p_node.text(strip=True))
-            if price:
-                break
-    if not price:
-        pw = tree.css_first("span.priceToPay span.a-price-whole")
-        if pw:
-            price = _parse_price(pw.text(strip=True))
-
-    # MRP
-    mrp = 0
-    for sel in [
-        "span.basisPrice span.a-offscreen",
-        "span.a-text-price[data-a-strike='true'] span.a-offscreen",
-        "span.a-price.a-text-price span.a-offscreen",
-    ]:
-        mrp_node = tree.css_first(sel)
-        if mrp_node:
-            mrp = _parse_price(mrp_node.text(strip=True))
-            break
+    price = _parse_buy_box_price(tree)
+    mrp = _parse_mrp(tree, price)
 
     # Discount
     discount = ""
@@ -252,6 +227,76 @@ def parse_product_page(html: str, asin: str) -> ProductDetail:
     )
 
 
+#: Buy-box price, in preference order. The first two are the accessible
+#: ("offscreen") copy; newer layouts blank those and render only the digits,
+#: hence the whole/fraction fallbacks.
+_PRICE_SELECTORS = (
+    "div#corePrice_feature_div span.a-offscreen",
+    "div#corePriceDisplay_desktop_feature_div span.a-offscreen",
+    "span.priceToPay span.a-offscreen",
+    "span.priceToPay span.a-price-whole",
+    "div#corePriceDisplay_desktop_feature_div span.a-price-whole",
+    "span#priceblock_ourprice",
+    "span#priceblock_dealprice",
+)
+
+#: A node inside any of these is a struck-through list price, not what you pay.
+_STRUCK_ANCESTORS = ("a-text-price", "basisPrice")
+
+
+def _is_struck(node) -> bool:
+    """True when this price node sits inside a struck-through (M.R.P.) wrapper.
+
+    Without this, a layout where the buy-box span is blank lets the *next*
+    matching node -- the M.R.P. -- become the price. That is a plausible,
+    non-zero, wrong number: the worst kind, because nothing downstream can tell
+    it apart from a real one.
+    """
+    current = node
+    for _ in range(6):  # bounded walk; the wrapper is always close by
+        current = current.parent
+        if current is None:
+            return False
+        attrs = current.attributes
+        if attrs.get("data-a-strike") == "true":
+            return True
+        classes = attrs.get("class") or ""
+        if any(marker in classes for marker in _STRUCK_ANCESTORS):
+            return True
+    return False
+
+
+def _parse_buy_box_price(tree: HTMLParser) -> int:
+    """The price you would actually pay, in paise."""
+    for selector in _PRICE_SELECTORS:
+        for node in tree.css(selector):
+            if _is_struck(node):
+                continue
+            price = _parse_price(node.text(strip=True))
+            if price:
+                return price
+    return 0
+
+
+def _parse_mrp(tree: HTMLParser, price: int) -> int:
+    """The struck-through list price, in paise.
+
+    Only the first match is considered -- later ``a-text-price`` nodes belong to
+    "similar products" carousels and would import another product's price. An
+    MRP at or below ``price`` is a mis-parse and is discarded rather than
+    rendered as a zero-or-negative discount.
+    """
+    for selector in (
+        "span.basisPrice span.a-offscreen",
+        "span.a-text-price[data-a-strike='true'] span.a-offscreen",
+        "span.a-price.a-text-price span.a-offscreen",
+    ):
+        node = tree.css_first(selector)
+        if node:
+            return money.sane_mrp(_parse_price(node.text(strip=True)), price)
+    return 0
+
+
 def _parse_review_insights(tree: HTMLParser) -> ReviewInsights:
     """Extract AI summary, aspect tags, and rating histogram."""
     # AI summary: long span text starting with "Customers find..."
@@ -321,63 +366,120 @@ def _parse_specs(tree: HTMLParser) -> dict[str, str]:
     return specs
 
 
+#: Amazon moved reviews from stable `data-hook` attributes to CSS-module class
+#: names like `_Y3Itd_single-review-title_2aKRE`. The `_Y3Itd_`/`_2aKRE` parts
+#: are build hashes and churn on every deploy, so we match the stable middle
+#: with a substring selector. The old `data-hook` selectors are still tried
+#: first -- Amazon serves both layouts depending on the request.
+_REVIEW_TITLE_SELECTORS = (
+    '[data-hook="review-title"]',
+    '[class*="single-review-title"]',
+)
+
+_REVIEW_BODY_SELECTORS = (
+    '[data-hook="review-body"]',
+    '[class*="single-review-text-container"]',
+)
+
+#: Accessibility and expander copy that lives inside the body container. It is
+#: not review text, and it is identical on every review, so leaving it in made
+#: every body start with the same 100 characters of boilerplate.
+_REVIEW_CHROME = re.compile(
+    r"(Brief content visible, double tap to read full content\.)"
+    r"|(Full content visible, double tap to read brief content\.)"
+    r"|(Read more\s*Read less)"
+    r"|(\(\d+ stars?\))"
+)
+
+
+def _first_text(node, selectors: tuple[str, ...]) -> str:
+    """Text of the first matching selector, or '' when none match."""
+    for selector in selectors:
+        found = node.css_first(selector)
+        if found:
+            text = found.text(strip=True)
+            if text:
+                return text
+    return ""
+
+
+#: Runs of spaces/tabs only. Review text is deliberately NOT passed through
+#: `_clean_text`: that collapses newlines too, which silently flattens a
+#: multi-paragraph review into one block for every `--json` and `--csv`
+#: consumer. Amazon's own chrome removal leaves double spaces behind, so those
+#: are tidied without touching line structure.
+_INLINE_SPACES = re.compile(r"[ \t]{2,}")
+
+
+def _tidy(text: str) -> str:
+    """Trim and squeeze runs of spaces, preserving line breaks."""
+    return _INLINE_SPACES.sub(" ", text).strip()
+
+
+def _review_title(node) -> str:
+    """The headline. The legacy layout nests it under a stars span."""
+    legacy = node.css_first('[data-hook="review-title"]')
+    if legacy:
+        for span in legacy.css("span"):
+            text = span.text(strip=True)
+            if text and "out of" not in text:
+                return _tidy(text)
+    return _tidy(_first_text(node, _REVIEW_TITLE_SELECTORS))
+
+
+def _review_body(node) -> str:
+    """The review text, with Amazon's expander and a11y chrome removed."""
+    raw = _first_text(node, _REVIEW_BODY_SELECTORS)
+    if not raw:
+        return ""
+    body = _REVIEW_CHROME.sub(" ", raw)
+    body = re.sub(r"^The media could not be loaded\.\s*", "", body)
+    body = re.sub(r"(Read more|Read less)\s*$", "", body)
+    return _tidy(body)
+
+
 def parse_reviews_page(html: str) -> list[Review]:
-    """Parse reviews from product page or dedicated reviews page."""
+    """Parse reviews from a product page or a dedicated reviews page."""
     tree = HTMLParser(html)
     reviews = []
 
     for node in tree.css('[data-hook="review"]'):
-        # Rating
         rating = 0.0
-        star_node = node.css_first('[data-hook="review-star-rating"] span.a-icon-alt')
-        if not star_node:
-            star_node = node.css_first('[data-hook="cmps-review-star-rating"] span.a-icon-alt')
+        star_node = (
+            node.css_first('[data-hook="review-star-rating"] span.a-icon-alt')
+            or node.css_first('[data-hook="cmps-review-star-rating"] span.a-icon-alt')
+            or node.css_first('span.a-icon-alt')
+        )
         if star_node:
             match = re.search(r"([\d.]+)\s+out\s+of\s+5", star_node.text(strip=True))
             if match:
                 rating = float(match.group(1))
 
-        # Title
-        title = ""
-        title_node = node.css_first('[data-hook="review-title"]')
-        if title_node:
-            for span in title_node.css("span"):
-                text = span.text(strip=True)
-                if text and "out of" not in text:
-                    title = text
-
-        # Body
-        body = ""
-        body_node = node.css_first('[data-hook="review-body"]')
-        if body_node:
-            body = body_node.text(strip=True)
-            body = re.sub(r"(Read more|Read less)$", "", body).rstrip()
-            body = re.sub(r"^The media could not be loaded\.\s*", "", body)
-
-        # Author
         author = ""
         author_node = node.css_first("span.a-profile-name")
         if author_node:
             author = author_node.text(strip=True)
 
-        # Date
         date = ""
         date_node = node.css_first('[data-hook="review-date"]')
+        if not date_node:
+            for candidate in node.css("span,div"):
+                text = candidate.text(strip=True)
+                if text.startswith("Reviewed in") and len(text) < 120:
+                    date_node = candidate
+                    break
         if date_node:
             date_text = date_node.text(strip=True)
             match = re.search(r"on\s+(.+)$", date_text)
             date = match.group(1) if match else date_text
 
-        # Verified
-        verified = bool(node.css_first('[data-hook="avp-badge"]'))
-
         reviews.append(Review(
-            title=title,
-            body=body,
+            title=_review_title(node),
+            body=_review_body(node),
             rating=rating,
             author=author,
             date=date,
-            verified=verified,
+            verified=bool(node.css_first('[data-hook="avp-badge"]')),
         ))
 
     return reviews
